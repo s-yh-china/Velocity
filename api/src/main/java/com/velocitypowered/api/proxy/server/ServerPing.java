@@ -30,10 +30,11 @@ public final class ServerPing {
   private final net.kyori.adventure.text.Component description;
   private final @Nullable Favicon favicon;
   private final @Nullable ModInfo modinfo;
+  private final boolean preventsChatReports;
 
   public ServerPing(Version version, @Nullable Players players,
       net.kyori.adventure.text.Component description, @Nullable Favicon favicon) {
-    this(version, players, description, favicon, ModInfo.DEFAULT);
+    this(version, players, description, favicon, ModInfo.DEFAULT, true);
   }
 
   /**
@@ -47,12 +48,13 @@ public final class ServerPing {
    */
   public ServerPing(Version version, @Nullable Players players,
       net.kyori.adventure.text.Component description, @Nullable Favicon favicon,
-      @Nullable ModInfo modinfo) {
+      @Nullable ModInfo modinfo, boolean preventsChatReports) {
     this.version = Preconditions.checkNotNull(version, "version");
     this.players = players;
     this.description = Preconditions.checkNotNull(description, "description");
     this.favicon = favicon;
     this.modinfo = modinfo;
+    this.preventsChatReports = preventsChatReports;
   }
 
   public Version getVersion() {
@@ -73,6 +75,10 @@ public final class ServerPing {
 
   public Optional<ModInfo> getModinfo() {
     return Optional.ofNullable(modinfo);
+  }
+
+  public boolean isPreventsChatReports() {
+    return preventsChatReports;
   }
 
   @Override
@@ -132,6 +138,7 @@ public final class ServerPing {
       builder.modType = modinfo.getType();
       builder.mods.addAll(modinfo.getMods());
     }
+    builder.preventsChatReports = preventsChatReports;
     return builder;
   }
 
@@ -154,6 +161,7 @@ public final class ServerPing {
     private @Nullable Favicon favicon;
     private boolean nullOutPlayers;
     private boolean nullOutModinfo;
+    private boolean preventsChatReports;
 
     private Builder() {
 
@@ -238,6 +246,11 @@ public final class ServerPing {
       return this;
     }
 
+    public Builder preventsChatReports(boolean preventsChatReports) {
+      this.preventsChatReports = preventsChatReports;
+      return this;
+    }
+
     /**
      * Uses the information from this builder to create a new {@link ServerPing} instance. The
      * builder can be re-used after this event has been called.
@@ -253,7 +266,7 @@ public final class ServerPing {
       }
       return new ServerPing(version,
           nullOutPlayers ? null : new Players(onlinePlayers, maximumPlayers, samplePlayers),
-          description, favicon, nullOutModinfo ? null : new ModInfo(modType, mods));
+          description, favicon, nullOutModinfo ? null : new ModInfo(modType, mods), preventsChatReports);
     }
 
     public Version getVersion() {
