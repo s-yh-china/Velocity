@@ -88,6 +88,10 @@ public class VelocityConfiguration implements ProxyConfig {
   private @Nullable Favicon favicon;
   @Expose
   private boolean forceKeyAuthentication = true; // Added in 1.19
+  @Expose
+  private boolean extraYggdrasilService = false;
+  @Expose
+  private List<String> extraYggdrasilServiceList = ImmutableList.of("https://url.with.authlib-injector-yggdrasil");
 
   private VelocityConfiguration(Servers servers, ForcedHosts forcedHosts, Advanced advanced,
       Query query, Metrics metrics) {
@@ -103,7 +107,8 @@ public class VelocityConfiguration implements ProxyConfig {
       PlayerInfoForwarding playerInfoForwardingMode, byte[] forwardingSecret,
       boolean onlineModeKickExistingPlayers, PingPassthroughMode pingPassthrough,
       boolean enablePlayerAddressLogging, Servers servers, ForcedHosts forcedHosts,
-      Advanced advanced, Query query, Metrics metrics, boolean forceKeyAuthentication) {
+      Advanced advanced, Query query, Metrics metrics, boolean forceKeyAuthentication,
+      boolean extraYggdrasilService, List<String> extraYggdrasilServiceList) {
     this.bind = bind;
     this.motd = motd;
     this.showMaxPlayers = showMaxPlayers;
@@ -121,6 +126,8 @@ public class VelocityConfiguration implements ProxyConfig {
     this.query = query;
     this.metrics = metrics;
     this.forceKeyAuthentication = forceKeyAuthentication;
+    this.extraYggdrasilService = extraYggdrasilService;
+    this.extraYggdrasilServiceList = extraYggdrasilServiceList;
   }
 
   /**
@@ -396,6 +403,14 @@ public class VelocityConfiguration implements ProxyConfig {
     return forceKeyAuthentication;
   }
 
+  public boolean isExtraYggdrasilService() {
+    return extraYggdrasilService;
+  }
+
+  public List<String> getExtraYggdrasilServiceList() {
+    return extraYggdrasilServiceList;
+  }
+
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
@@ -564,6 +579,8 @@ public class VelocityConfiguration implements ProxyConfig {
         true);
     Boolean kickExisting = config.getOrElse("kick-existing-players", false);
     Boolean enablePlayerAddressLogging = config.getOrElse("enable-player-address-logging", true);
+    Boolean extraYggdrasilService = config.getOrElse("extra-yggdrasil-service", false);
+    List<String> extraYggdrasilServiceList = config.getOrElse("extra-yggdrasil-service-list", ImmutableList.of("https://url.with.authlib-injector-yggdrasil"));
 
     // Throw an exception if the forwarding-secret file is empty and the proxy is using a
     // forwarding mode that requires it.
@@ -590,7 +607,9 @@ public class VelocityConfiguration implements ProxyConfig {
         new Advanced(advancedConfig),
         new Query(queryConfig),
         new Metrics(metricsConfig),
-        forceKeyAuthentication
+        forceKeyAuthentication,
+        extraYggdrasilService,
+        extraYggdrasilServiceList
     );
   }
 

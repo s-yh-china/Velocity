@@ -266,7 +266,8 @@ public final class ServerPing {
       }
       return new ServerPing(version,
           nullOutPlayers ? null : new Players(onlinePlayers, maximumPlayers, samplePlayers),
-          description, favicon, nullOutModinfo ? null : new ModInfo(modType, mods), preventsChatReports);
+          description, favicon, nullOutModinfo ? null : new ModInfo(modType, mods),
+          preventsChatReports);
     }
 
     public Version getVersion() {

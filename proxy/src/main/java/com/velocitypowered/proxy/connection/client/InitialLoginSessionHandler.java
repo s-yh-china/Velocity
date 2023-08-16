@@ -24,6 +24,7 @@ import static com.velocitypowered.proxy.crypto.EncryptionUtils.decryptRsa;
 import static com.velocitypowered.proxy.crypto.EncryptionUtils.generateServerId;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.Longs;
 import com.velocitypowered.api.event.connection.PreLoginEvent;
 import com.velocitypowered.api.event.connection.PreLoginEvent.PreLoginComponentResult;
@@ -44,7 +45,9 @@ import java.net.InetSocketAddress;
 import java.security.GeneralSecurityException;
 import java.security.KeyPair;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadLocalRandom;
@@ -75,6 +78,9 @@ public class InitialLoginSessionHandler implements MinecraftSessionHandler {
   private LoginState currentState = LoginState.LOGIN_PACKET_EXPECTED;
   private boolean forceKeyAuthentication;
 
+  private final boolean extraYggdrasilService;
+  private final List<String> extraYggdrasilServiceList;
+
   InitialLoginSessionHandler(VelocityServer server, MinecraftConnection mcConnection,
       LoginInboundConnection inbound) {
     this.server = Preconditions.checkNotNull(server, "server");
@@ -83,6 +89,13 @@ public class InitialLoginSessionHandler implements MinecraftSessionHandler {
     this.forceKeyAuthentication = System.getProperties().containsKey("auth.forceSecureProfiles")
         ? Boolean.getBoolean("auth.forceSecureProfiles")
         : server.getConfiguration().isForceKeyAuthentication();
+    this.extraYggdrasilService = server.getConfiguration().isExtraYggdrasilService();
+    List<String> yggList = new ArrayList<>();
+    for (String realUrl : server.getConfiguration().getExtraYggdrasilServiceList()) {
+      yggList.add((realUrl + "/sessionserver/session/minecraft/hasJoined")
+              .concat("?username=%s&serverId=%s"));
+    }
+    this.extraYggdrasilServiceList = ImmutableList.copyOf(yggList);
   }
 
   @Override
@@ -230,43 +243,73 @@ public class InitialLoginSessionHandler implements MinecraftSessionHandler {
           return;
         }
 
+        Response profileResponse = null;
+
         try {
-          Response profileResponse = hasJoinedResponse.get();
-          if (profileResponse.getStatusCode() == 200) {
-            final GameProfile profile = GENERAL_GSON.fromJson(profileResponse.getResponseBody(),
-                GameProfile.class);
-            // Not so fast, now we verify the public key for 1.19.1+
-            if (inbound.getIdentifiedKey() != null
-                && inbound.getIdentifiedKey().getKeyRevision() == IdentifiedKey.Revision.LINKED_V2
-                && inbound.getIdentifiedKey() instanceof IdentifiedKeyImpl) {
-              IdentifiedKeyImpl key = (IdentifiedKeyImpl) inbound.getIdentifiedKey();
-              if (!key.internalAddHolder(profile.getId())) {
-                inbound.disconnect(
-                    Component.translatable("multiplayer.disconnect.invalid_public_key"));
-              }
-            }
-            // All went well, initialize the session.
-            mcConnection.setSessionHandler(new AuthSessionHandler(
-                server, inbound, profile, true
-            ));
-          } else if (profileResponse.getStatusCode() == 204) {
-            // Apparently an offline-mode user logged onto this online-mode proxy.
-            inbound.disconnect(Component.translatable("velocity.error.online-mode-only",
-                NamedTextColor.RED));
-          } else {
-            // Something else went wrong
-            logger.error(
-                "Got an unexpected error code {} whilst contacting Mojang to log in {} ({})",
-                profileResponse.getStatusCode(), login.getUsername(), playerIp);
-            inbound.disconnect(Component.translatable("multiplayer.disconnect.authservers_down"));
-          }
+          profileResponse = hasJoinedResponse.get();
         } catch (ExecutionException e) {
           logger.error("Unable to authenticate with Mojang", e);
-          inbound.disconnect(Component.translatable("multiplayer.disconnect.authservers_down"));
         } catch (InterruptedException e) {
           // not much we can do usefully
           Thread.currentThread().interrupt();
         }
+
+        if (profileResponse != null
+            && (!extraYggdrasilService || profileResponse.getStatusCode() == 200)) {
+          if (profileResponse.getStatusCode() == 200) {
+            final GameProfile profile = GENERAL_GSON.fromJson(profileResponse.getResponseBody(),
+                    GameProfile.class);
+            // Not so fast, now we verify the public key for 1.19.1+
+            if (inbound.getIdentifiedKey() != null
+                    && inbound.getIdentifiedKey()
+                    .getKeyRevision() == IdentifiedKey.Revision.LINKED_V2
+                    && inbound.getIdentifiedKey() instanceof IdentifiedKeyImpl) {
+              IdentifiedKeyImpl key = (IdentifiedKeyImpl) inbound.getIdentifiedKey();
+              if (!key.internalAddHolder(profile.getId())) {
+                inbound.disconnect(
+                        Component.translatable("multiplayer.disconnect.invalid_public_key"));
+              }
+            }
+            // All went well, initialize the session.
+            mcConnection.setSessionHandler(new AuthSessionHandler(
+                    server, inbound, profile, true
+            ));
+          } else if (profileResponse.getStatusCode() == 204) {
+            // Apparently an offline-mode user logged onto this online-mode proxy.
+            inbound.disconnect(Component.translatable("velocity.error.online-mode-only",
+                    NamedTextColor.RED));
+          } else {
+            // Something else went wrong
+            logger.error(
+                    "Got an unexpected error code {} whilst contacting Mojang to log in {} ({})",
+                    profileResponse.getStatusCode(), login.getUsername(), playerIp);
+            inbound.disconnect(Component.translatable("multiplayer.disconnect.authservers_down"));
+          }
+          return;
+        }
+
+        for (String yggUrl : extraYggdrasilServiceList) {
+          try {
+            String realUrl = String.format(yggUrl,
+                    urlFormParameterEscaper().escape(login.getUsername()), serverId);
+            Response response = server.getAsyncHttpClient().prepareGet(realUrl)
+                    .execute().get();
+            if (response.getStatusCode() == 200) {
+              final GameProfile profile = GENERAL_GSON.fromJson(response.getResponseBody(),
+                      GameProfile.class);
+              mcConnection.setSessionHandler(new AuthSessionHandler(
+                      server, inbound, profile, true
+              ));
+              return;
+            }
+          } catch (InterruptedException e) {
+            logger.error("Unable to authenticate with EX Yggdrasil", e);
+          } catch (ExecutionException e) {
+            Thread.currentThread().interrupt();
+          }
+        }
+        inbound.disconnect(Component.translatable("velocity.error.online-mode-only",
+                NamedTextColor.RED));
       }, mcConnection.eventLoop());
     } catch (GeneralSecurityException e) {
       logger.error("Unable to enable encryption", e);
